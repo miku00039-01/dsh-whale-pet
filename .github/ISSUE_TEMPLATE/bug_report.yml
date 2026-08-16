@@ -1,0 +1,37 @@
+name: Bug Report
+description: 报告一个 bug / Report a bug
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 现象 / What happened
+      description: 发生了什么?期望是什么?
+      placeholder: 双击鲸鱼娘后没有反应...
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境 / Environment
+      description: Windows 版本、DeepSeek Harness 版本、Node.js 版本、是否使用 Chrome PWA 快捷方式
+      placeholder: Windows 11 23H2 / dsh rc.6 / Node 24 / 有 PWA
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: 崩溃日志 / Crash log
+      description: 如有,粘贴 dsh-whale-pet-crash.log 的内容
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: conf
+    attributes:
+      label: 配置 / Config
+      description: dsh-whale-pet.conf 内容(请打码任何路径中的个人信息)
+      render: text
+    validations:
+      required: false

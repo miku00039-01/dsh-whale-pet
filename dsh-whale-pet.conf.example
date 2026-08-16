@@ -1,0 +1,9 @@
+# DSH 桌宠配置示例(复制为 dsh-whale-pet.conf 后修改;留空 = 自动检测)
+workspace=
+nodePath=
+dshBin=
+pwaShortcut=
+pwaWindowTitle=DeepSeek Harness
+port=3080
+lastX=-1
+lastY=-1

@@ -1,0 +1,23 @@
+# ── 构建产物 ──
+build/
+*.exe
+assets/pet.ico
+
+# ── 本地配置 / 日志(含位置记忆,不入库) ──
+dsh-whale-pet.conf
+*.log
+dsh-whale-pet-crash.log
+
+# ── 敏感文件:DSH 凭证 / 设置 / 会话记录(防御性忽略,务必不要上传) ──
+.credentials.yaml
+settings.yaml
+.env
+sessions/
+*.jsonl
+*.jsonl.zstd
+
+# ── 系统 / 编辑器 ──
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
