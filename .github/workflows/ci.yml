@@ -21,13 +21,16 @@ jobs:
 
       - name: Build with build.ps1
         shell: pwsh
-        run: ./build.ps1
+        run: |
+          ./build.ps1
+          # Release 资产用 ASCII 文件名,避免中文名在跨系统传输时被截断
+          Move-Item -Force DSH桌宠.exe DSHWhalePet.exe
 
       - name: Upload exe artifact
         uses: actions/upload-artifact@v4
         with:
           name: DSHWhalePet-exe
-          path: DSH桌宠.exe
+          path: DSHWhalePet.exe
           if-no-files-found: error
 
   release:
@@ -45,5 +48,5 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/DSH桌宠.exe
+          files: dist/DSHWhalePet.exe
           generate_release_notes: true
