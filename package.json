@@ -1,0 +1,25 @@
+{
+  "name": "dsh-whale-pet",
+  "version": "1.7.0",
+  "description": "🐋 DSH 鲸鱼娘桌宠插件:/whalepet 命令启动 DeepSeek Harness 桌面宠物(启动/停止/监测服务、双击唤起 GUI)",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "files": [
+    "lib",
+    "dist",
+    "cordis.patch.yml",
+    "src",
+    "assets",
+    "build.ps1"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/miku00039-01/dsh-whale-pet.git"
+  }
+}
