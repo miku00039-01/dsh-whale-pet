@@ -1,5 +1,10 @@
 name: Build & Release
 
+# 显式声明写权限:创建 Release 需要 GITHUB_TOKEN 的 contents: write
+# (仓库默认只读时,不加这一行 release 步骤会失败)
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ main, master ]
