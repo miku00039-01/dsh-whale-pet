@@ -1,6 +1,7 @@
 # build.ps1 —— 从源码构建 DSH 桌宠 exe
-# 用法:在项目根目录执行  pwsh -File build.ps1
-# 产物:DSH桌宠.exe(项目根目录);依赖:Windows 自带 csc.exe + .NET Framework
+# 用法:在项目根目录执行  pwsh -File build.ps1 [-OutDir <输出目录>]
+# 产物:DSH桌宠.exe(默认项目根目录;指定 -OutDir 时输出到该目录);依赖:Windows 自带 csc.exe + .NET Framework
+param([string]$OutDir = '')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
@@ -9,7 +10,12 @@ $srcCs = Join-Path $root 'src\DSHPet.cs'
 $whale = Join-Path $root 'assets\whale.png'
 $ico   = Join-Path $root 'assets\pet.ico'
 $outTmp = Join-Path $root 'build\DSHPet.exe'
-$outExe = Join-Path $root 'DSH桌宠.exe'
+if ($OutDir -ne '') {
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    $outExe = Join-Path $OutDir 'DSH桌宠.exe'
+} else {
+    $outExe = Join-Path $root 'DSH桌宠.exe'
+}
 $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { $csc = 'C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 if (-not (Test-Path $csc)) { throw '未找到 csc.exe(.NET Framework 编译器)' }

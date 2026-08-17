@@ -2,6 +2,8 @@
 build/
 *.exe
 assets/pet.ico
+# 桌宠 exe 需随插件分发(随 dsh plugin add 安装),取消忽略
+!dist/DSH桌宠.exe
 
 # ── 本地配置 / 日志(含位置记忆,不入库) ──
 dsh-whale-pet.conf
