@@ -35,6 +35,16 @@
 
 ## 🚀 快速开始
 
+### 方式一:作为 DSH 插件安装(推荐)
+
+```sh
+dsh plugin --profile web add github:miku00039-01/dsh-whale-pet
+```
+
+安装后在 DSH 里输入 `/whalepet` 即可启动鲸鱼娘桌宠。(本插件已在 [awesome-dsh-plugin](https://awesome-dsh-plugin.com) 收录流程中。)
+
+### 方式二:直接下载 exe
+
 1. 从 Releases 下载 `DSH桌宠.exe`(或按下方"从源码构建")
 2. 双击运行 → 鲸鱼娘出现在屏幕右下角
 3. 首次运行会在 exe 同目录生成 `dsh-whale-pet.conf`(自动检测的路径),可按需修改
@@ -77,14 +87,18 @@ git push origin v1.0.0
 
 ```
 dsh-whale-pet/
-├── src/DSHPet.cs              # 全部源码(单文件,WinForms + P/Invoke)
-├── assets/whale.png           # 桌宠形象素材(见下方授权)
-├── assets/pet.ico             # 构建生成的 exe 图标
-├── assets/WHALE_ATTRIBUTION.md# 素材授权说明
-├── build.ps1                  # 一键构建脚本
-├── .github/workflows/ci.yml   # CI:push 构建校验,tag 自动发 Release
-├── dsh-whale-pet.conf.example # 配置示例
-├── CHANGELOG.md               # 版本记录
+├── package.json                # dsh 插件 manifest(dsh.bundle)
+├── cordis.patch.yml            # 插件注册(/whalepet 命令)
+├── lib/index.js                # 插件实现:注册命令并启动桌宠 exe
+├── dist/DSH桌宠.exe            # 随插件分发的桌宠 exe
+├── src/DSHPet.cs               # 桌宠全部源码(单文件,WinForms + P/Invoke)
+├── assets/whale.png            # 桌宠形象素材(见下方授权)
+├── assets/pet.ico              # 构建生成的 exe 图标
+├── assets/WHALE_ATTRIBUTION.md # 素材授权说明
+├── build.ps1                   # 一键构建脚本(支持 -OutDir)
+├── .github/workflows/ci.yml    # CI:push 构建校验,tag 自动发 Release
+├── dsh-whale-pet.conf.example  # 配置示例
+├── CHANGELOG.md                # 版本记录
 └── README.md
 ```
 

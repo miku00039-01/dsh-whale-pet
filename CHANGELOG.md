@@ -2,6 +2,15 @@
 
 All notable changes to **DSH Whale Pet** are documented here.
 
+## [v1.7.0] - 2026-08-16
+
+### Added
+- **DSH 插件化**:仓库现在是一个可安装的 dsh 插件(`dsh.bundle` manifest)。
+  - 安装:`dsh plugin --profile web add github:miku00039-01/dsh-whale-pet`
+  - 安装后输入 `/whalepet` 命令即可启动鲸鱼娘桌宠
+  - 桌宠 exe 随插件分发(`dist/`);缺失时自动用 `build.ps1` 构建到 `%LOCALAPPDATA%\DSHWhalePet`
+- `build.ps1` 新增 `-OutDir` 参数(指定输出目录)。
+
 ## [v1.6] - 2026-08-16
 
 ### Changed
