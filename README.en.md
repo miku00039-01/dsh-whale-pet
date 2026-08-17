@@ -35,6 +35,16 @@ A Windows desktop pet that bundles **DeepSeek Harness** service management — s
 
 ## 🚀 Quick Start
 
+### Option A: install as a DSH plugin (recommended)
+
+```sh
+dsh plugin --profile web add github:miku00039-01/dsh-whale-pet
+```
+
+Then type `/whalepet` in DSH to launch the whale pet.
+
+### Option B: download the exe directly
+
 1. Download `DSH桌宠.exe` from [Releases](https://github.com/miku00039-01/dsh-whale-pet/releases) (or build it — see below)
 2. Double-click to run — the whale appears at the bottom-right of your screen
 3. First run generates `dsh-whale-pet.conf` next to the exe (auto-detected paths); edit it if needed
