@@ -1,5 +1,7 @@
 # 🐋 DSH 桌宠 (DSH Whale Pet)
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
 一个 Windows 桌面宠物程序,把 **DeepSeek Harness** 的服务启动、停止、状态监测和 GUI 唤起整合到一个零依赖的 `.exe` 里。
 
 **English**: [README.en.md](README.en.md) · **版本记录**: [CHANGELOG.md](CHANGELOG.md) · **安全**: [SECURITY.md](SECURITY.md)

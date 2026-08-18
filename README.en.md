@@ -1,5 +1,7 @@
 # 🐋 DSH Whale Pet
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
 A Windows desktop pet that bundles **DeepSeek Harness** service management — start, stop, monitor — and GUI launching into a single zero-dependency `.exe`.
 
 [中文说明](README.md) · [Changelog](CHANGELOG.md)
