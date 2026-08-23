@@ -2,6 +2,11 @@
 
 All notable changes to **DSH Whale Pet** are documented here.
 
+## [v1.9] - 2026-08-23
+
+### Changed
+- 服务进程**完全隐藏控制台窗口**(`CreateNoWindow`),不再弹出空窗口;输出全部写入 `dsh-server.log` 日志。
+
 ## [v1.8] - 2026-08-18
 
 ### Fixed / Added (diagnostics for the "first launch after boot hangs" issue)
