@@ -2,6 +2,15 @@
 
 All notable changes to **DSH Whale Pet** are documented here.
 
+## [v1.8] - 2026-08-18
+
+### Fixed / Added (diagnostics for the "first launch after boot hangs" issue)
+- 服务启动改为**输出重定向到日志**(`dsh-server.log`),窗口空白也能看到服务实际输出。
+- 新增启动日志 `dsh-launch.log`(记录启动命令与时间)。
+- 启动等待超过 30 秒时托盘弹出"启动较慢"提示(常见于开机首次启动被安全软件扫描)。
+- 服务进程已退出但未就绪时,弹窗明确报错并指向日志,不再静默失败。
+- 已知环境提示:开机首次启动如被 Windows Defender 云扫描拖慢,建议将 node/dsh 目录加入 Defender 排除项。
+
 ## [v1.7.0] - 2026-08-16
 
 ### Added

@@ -83,7 +83,7 @@ namespace DSHWhalePet
         string PwaShortcut { get { return cfgPwaShortcut; } }
         string PwaWindowTitle { get { return cfgPwaWindowTitle; } }
 
-        const string VERSION = "v1.6";
+        const string VERSION = "v1.8";
         const int ONLINE_MS = 5000;   // 在线检测间隔
         const int OFFLINE_MS = 2000;  // 离线检测间隔
         const string RES_NAME = "DSHWhalePet.pet.png";
@@ -101,6 +101,9 @@ namespace DSHWhalePet
         bool checking = false;
         bool waitingForReady = false;
         bool startedService = false;
+        Process serverProc = null;
+        DateTime waitStart = DateTime.MinValue;
+        bool slowNotified = false;
         DateTime startTime = DateTime.Now;
         EventWaitHandle wakeEvent;
         Thread wakeThread;
@@ -403,6 +406,40 @@ namespace DSHWhalePet
             {
                 waitingForReady = false;
                 OpenGui();
+                return;
+            }
+            if (!ok && waitingForReady)
+            {
+                // 服务进程已退出但服务没起来 → 明确报错
+                if (serverProc != null)
+                {
+                    try
+                    {
+                        if (serverProc.HasExited)
+                        {
+                            waitingForReady = false;
+                            MessageBox.Show(
+                                "DSH 服务启动失败(进程已退出,退出码 " + serverProc.ExitCode + ")。\n"
+                                + "请查看服务日志: " + ServerLogPath,
+                                "DSH 桌宠", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            serverProc = null;
+                            return;
+                        }
+                    }
+                    catch { }
+                }
+                // 进程还活着但迟迟不就绪 → 一次性提示"启动较慢"(如首次启动被安全软件扫描)
+                if (!slowNotified && (DateTime.Now - waitStart).TotalSeconds > 30)
+                {
+                    slowNotified = true;
+                    try
+                    {
+                        tray.ShowBalloonTip(6000, "DSH 桌宠",
+                            "DSH 服务启动较慢(可能是开机首次启动被安全软件扫描),正在等待…",
+                            ToolTipIcon.Info);
+                    }
+                    catch { }
+                }
             }
         }
 
@@ -437,6 +474,8 @@ namespace DSHWhalePet
                 return;
             }
             startedService = true;
+            waitStart = DateTime.Now;
+            slowNotified = false;
             try
             {
                 // 直接 node <bin.js> web,等价于 npx @deepseek-ai/dsh web,但无 npx 解析/下载/弹窗
@@ -444,9 +483,34 @@ namespace DSHWhalePet
                 psi.WorkingDirectory = WorkSpace;
                 psi.WindowStyle = ProcessWindowStyle.Minimized;
                 psi.CreateNoWindow = false;
-                Process.Start(psi);
+                // 输出重定向到日志文件:窗口即使空白,服务日志也能看到卡在哪
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                psi.UseShellExecute = false;
+                serverProc = Process.Start(psi);
+                // 启动日志
+                try
+                {
+                    File.AppendAllText(LaunchLogPath,
+                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " 启动: " + NodePath + " \"" + DshBin + "\" web (cwd=" + WorkSpace + ")\n");
+                }
+                catch { }
+                // 异步把服务输出写入日志,避免管道缓冲堵塞服务
+                serverProc.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
+                {
+                    if (e.Data != null) { try { File.AppendAllText(ServerLogPath, e.Data + "\n"); } catch { } }
+                };
+                serverProc.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e)
+                {
+                    if (e.Data != null) { try { File.AppendAllText(ServerLogPath, e.Data + "\n"); } catch { } }
+                };
+                serverProc.BeginOutputReadLine();
+                serverProc.BeginErrorReadLine();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                try { File.AppendAllText(LaunchLogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " 启动异常: " + ex + "\n"); } catch { }
+            }
         }
 
         int FindPid()
@@ -553,6 +617,16 @@ namespace DSHWhalePet
                 string dir = Path.GetDirectoryName(Application.ExecutablePath);
                 return Path.Combine(dir, "dsh-whale-pet.conf");
             }
+        }
+
+        // ── 诊断日志(与 exe 同目录) ──
+        string LaunchLogPath
+        {
+            get { return Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "dsh-launch.log"); }
+        }
+        string ServerLogPath
+        {
+            get { return Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "dsh-server.log"); }
         }
 
         void SaveConfig()
