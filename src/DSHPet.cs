@@ -83,7 +83,7 @@ namespace DSHWhalePet
         string PwaShortcut { get { return cfgPwaShortcut; } }
         string PwaWindowTitle { get { return cfgPwaWindowTitle; } }
 
-        const string VERSION = "v1.9";
+        const string VERSION = "v1.10";
         const int ONLINE_MS = 5000;   // 在线检测间隔
         const int OFFLINE_MS = 2000;  // 离线检测间隔
         const string RES_NAME = "DSHWhalePet.pet.png";
@@ -478,8 +478,9 @@ namespace DSHWhalePet
             slowNotified = false;
             try
             {
-                // 直接 node <bin.js> web,等价于 npx @deepseek-ai/dsh web,但无 npx 解析/下载/弹窗
-                ProcessStartInfo psi = new ProcessStartInfo(NodePath, "\"" + DshBin + "\" web");
+                // 直接 node <bin.js> web --no-open,等价于 npx @deepseek-ai/dsh web
+                // --no-open:新版 dsh 启动会自动打开浏览器,由桌宠自己控制开窗(PWA),避免双窗口
+                ProcessStartInfo psi = new ProcessStartInfo(NodePath, "\"" + DshBin + "\" web --no-open");
                 psi.WorkingDirectory = WorkSpace;
                 psi.WindowStyle = ProcessWindowStyle.Hidden;
                 psi.CreateNoWindow = true;   // 输出已重定向到日志,不再弹出控制台窗口

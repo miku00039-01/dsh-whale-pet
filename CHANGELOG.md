@@ -2,6 +2,12 @@
 
 All notable changes to **DSH Whale Pet** are documented here.
 
+## [v1.10] - 2026-08-23
+
+### Fixed
+- 服务启动加 `--no-open`:新版 dsh(0.1.1+)启动默认会自动打开浏览器,导致"先弹网页再开 PWA 窗口"的双窗口问题;现在开窗完全由桌宠控制(PWA 窗口),不再多开 Chrome 标签页。
+- `start-dsh.ps1` 同步加 `--no-open`。
+
 ## [v1.9] - 2026-08-23
 
 ### Changed
