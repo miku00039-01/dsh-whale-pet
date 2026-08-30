@@ -65,6 +65,14 @@ dsh plugin --profile web add github:miku00039-01/dsh-whale-pet
 
 所有键留空 = 自动检测;修改后重启桌宠生效。示例见 `dsh-whale-pet.conf.example`。
 
+## 🖥️ 打开行为与开关
+
+- **桌宠打开 GUI 的方式**:优先打开 Chrome PWA **独立窗口**(通过 `pwaShortcut` 指定的快捷方式);未找到快捷方式时回落到默认浏览器标签页。
+- **服务启动开关**:桌宠以 `dsh web --no-open` 启动服务——新版 dsh(0.1.1+)默认会自动打开浏览器,`--no-open` 让开窗完全由桌宠控制,避免出现"先开网页再开应用窗口"的双窗口。
+- **想改打开方式?**
+  - 修改 `dsh-whale-pet.conf` 的 `pwaShortcut` → 指向别的 PWA 快捷方式;**置空**则始终用默认浏览器打开。
+  - 手动运行 `dsh web`(不带 `--no-open`)时,服务会自动打开浏览器——这是 dsh 自带行为,与桌宠无关。
+
 ## 🔨 从源码构建
 
 ```powershell

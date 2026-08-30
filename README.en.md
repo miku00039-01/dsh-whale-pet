@@ -63,6 +63,14 @@ Then type `/whalepet` in DSH to launch the whale pet.
 | `port` | `3080` | DSH service port |
 | `lastX` / `lastY` | -1 | Last whale position (auto-recorded) |
 
+## 🖥️ Open behavior & switches
+
+- **How the pet opens the GUI**: prefers a Chrome PWA **standalone window** (via the shortcut in `pwaShortcut`); falls back to a default-browser tab when the shortcut is missing.
+- **Service start switch**: the pet starts the service with `dsh web --no-open` — newer dsh (0.1.1+) auto-opens the browser by default, and `--no-open` lets the pet control window opening so you don't get "a web page first, then the app window".
+- **Want a different behavior?**
+  - Point `pwaShortcut` at another PWA shortcut, or **leave it empty** to always open in the default browser.
+  - Running `dsh web` manually (without `--no-open`) will auto-open the browser — that is dsh's own behavior, unrelated to the pet.
+
 All keys left empty = auto-detection. Restart the pet after editing. See `dsh-whale-pet.conf.example`.
 
 ## 🔨 Building from Source

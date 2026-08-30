@@ -8,6 +8,11 @@ All notable changes to **DSH Whale Pet** are documented here.
 - 服务启动加 `--no-open`:新版 dsh(0.1.1+)启动默认会自动打开浏览器,导致"先弹网页再开 PWA 窗口"的双窗口问题;现在开窗完全由桌宠控制(PWA 窗口),不再多开 Chrome 标签页。
 - `start-dsh.ps1` 同步加 `--no-open`。
 
+### 开关说明(入口)
+- **dsh 侧开关**:`dsh web` 默认自动打开浏览器;加 `--no-open` 则不开(`dsh web --no-open`)。想自己手动开浏览器时,不加该参数即可。
+- **桌宠侧行为**:桌宠固定以 `--no-open` 启动服务,开窗由桌宠统一控制——优先打开 Chrome PWA 独立窗口(`pwaShortcut` 配置项),未找到快捷方式时回落到默认浏览器。
+- **自定义**:修改 `dsh-whale-pet.conf` 的 `pwaShortcut` 可控制用哪个 PWA/浏览器打开;置空则始终用默认浏览器打开。
+
 ## [v1.9] - 2026-08-23
 
 ### Changed
