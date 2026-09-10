@@ -99,6 +99,8 @@ git push origin v1.0.0
 
 推送 `main` 分支也会触发一次构建校验(不发布)。
 
+**Release 正文自动取自 CHANGELOG**:发布任务会调用 `.github/scripts/extract-changelog.sh`,按 tag 从 `CHANGELOG.md` 提取对应版本小节作为 Release 说明(因此发版前请先在 `CHANGELOG.md` 写好该版本小节;小节标题用 `## [v1.14]` 或 `## [v1.14.0]` 都能匹配)。匹配不到时退化为一段简短说明,不会导致发布失败。
+
 ## 📁 目录结构
 
 ```

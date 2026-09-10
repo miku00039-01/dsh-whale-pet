@@ -39,6 +39,15 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Release 正文取自 CHANGELOG.md 中与该 tag 对应的版本小节(含"改了什么 + 为什么"),
+      # 不再依赖 GitHub 自动生成的提交列表:直接往 master 提交时,自动说明往往只剩一个 compare 链接。
+      - name: Extract changelog section for this tag
+        shell: bash
+        run: bash .github/scripts/extract-changelog.sh "$GITHUB_REF_NAME" CHANGELOG.md RELEASE_BODY.md
+
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
@@ -49,4 +58,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/DSHWhalePet.exe
-          generate_release_notes: true
+          body_path: RELEASE_BODY.md
