@@ -17,7 +17,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build with build.ps1
         shell: pwsh
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Release 正文取自 CHANGELOG.md 中与该 tag 对应的版本小节(含"改了什么 + 为什么"),
       # 不再依赖 GitHub 自动生成的提交列表:直接往 master 提交时,自动说明往往只剩一个 compare 链接。
