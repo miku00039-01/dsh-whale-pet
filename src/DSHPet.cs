@@ -75,6 +75,8 @@ namespace DSHWhalePet
         string cfgPwaWindowTitle = "DeepSeek Harness";  // PWA 窗口标题前缀(用于关窗)
         int cfgPort = 3080;              // DSH 服务端口
         int cfgLastX = -1, cfgLastY = -1; // 上次位置
+        string cfgChromeProfile = "Default";  // Chrome 配置目录(与 PWA 快捷方式一致;空 = 从快捷方式参数读取)
+        string cfgOpenMode = "auto";          // 开窗方式: auto = 优先令牌地址(自愈 cookie) | pwa = 只用快捷方式 | token = 只用令牌地址
 
         string WorkSpace { get { return cfgWorkspace.Length > 0 ? cfgWorkspace : AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'); } }
         string DshUrl { get { return "http://127.0.0.1:" + cfgPort; } }
@@ -82,8 +84,10 @@ namespace DSHWhalePet
         string DshBin { get { return cfgDshBin; } }
         string PwaShortcut { get { return cfgPwaShortcut; } }
         string PwaWindowTitle { get { return cfgPwaWindowTitle; } }
+        string ChromeProfile { get { return cfgChromeProfile; } }
+        string OpenMode { get { return cfgOpenMode; } }
 
-        const string VERSION = "v1.10";
+        const string VERSION = "v1.14";
         const int ONLINE_MS = 5000;   // 在线检测间隔
         const int OFFLINE_MS = 2000;  // 离线检测间隔
         const string RES_NAME = "DSHWhalePet.pet.png";
@@ -102,6 +106,9 @@ namespace DSHWhalePet
         bool waitingForReady = false;
         bool startedService = false;
         Process serverProc = null;
+        volatile string serviceUrl = "";   // 服务启动时输出的带令牌地址(用于开窗时换取/续期浏览器 cookie)
+        bool serviceUrlUsed = false;       // 该令牌地址是否已用于开窗(用过则回落 PWA 快捷方式,保持单窗口)
+        bool openPending = false;          // 是否已有一个"等待服务就绪后开窗"的任务在排队
         DateTime waitStart = DateTime.MinValue;
         bool slowNotified = false;
         DateTime startTime = DateTime.Now;
@@ -109,6 +116,7 @@ namespace DSHWhalePet
         Thread wakeThread;
         StatusCard card;
         bool exitingAll = false;
+        bool minimizedToTray = false;   // 是否已最小化至托盘(隐藏鲸鱼娘,仅留托盘图标)
 
         // ── 拖动/双击 ──
         bool dragging = false;
@@ -323,6 +331,7 @@ namespace DSHWhalePet
         {
             menu = new ContextMenuStrip();
             menu.Items.Add("🖥️ 打开程序", null, delegate { OpenProgram(); });
+            menu.Items.Add("🗕 最小化至托盘", null, delegate { MinimizeToTray(); });
             menu.Items.Add("⏹ 关闭程序", null, delegate { StopService(); });
             menu.Items.Add("📊 查看状态", null, delegate { ShowStatusCard(); });
             menu.Items.Add(new ToolStripSeparator());
@@ -335,11 +344,69 @@ namespace DSHWhalePet
             else { StartService(); waitingForReady = true; }
         }
 
+        // ── 开窗 ──
+        // 新版 dsh(0.1.x)对裸地址 http://127.0.0.1:<port>/ 要求浏览器持有 dsh-auth-* cookie
+        // (默认 30 天),cookie 缺失/过期时裸地址只返回 401。服务每次启动都会打印一行带进程
+        // 令牌的地址(dsh web: http://...?token=...),浏览器访问一次即换取新 cookie 并 303 跳回
+        // 干净地址。
+        //
+        // 抢跑保护:端口 listen 明显早于 Web 路由就绪 —— 服务刚起来就访问会先拿到 404
+        // (找不到网页),稍后拿到 401(authentication required)。令牌行是"真正就绪"的可靠
+        // 信号,所以桌宠在读到令牌行之前不急着开窗,而是短暂等待(最多 10 秒)后回落到原有路径。
+        // 桌宠自己启动的服务进程是否仍在运行(只有它能提供有效的进程令牌)
+        bool OurServiceRunning()
+        {
+            try { return serverProc != null && !serverProc.HasExited; }
+            catch { return false; }
+        }
+
         void OpenGui()
         {
+            if (OpenMode != "pwa" && OurServiceRunning() && serviceUrl.Length == 0)
+            {
+                if (openPending) return;      // 已有一个等待中的开窗任务,避免重复排队
+                openPending = true;
+                LogLaunch("服务已启动但尚未打印访问地址,等待就绪后再开窗…");
+                ThreadPool.QueueUserWorkItem(delegate(object state)
+                {
+                    for (int i = 0; i < 100 && serviceUrl.Length == 0 && OurServiceRunning(); i++) Thread.Sleep(100);
+                    try { BeginInvoke(new Action(OpenGuiNow)); }
+                    catch { openPending = false; }
+                });
+                return;
+            }
+            OpenGuiNow();
+        }
+
+        void OpenGuiNow()
+        {
+            openPending = false;
             try
             {
-                // 优先走 Chrome PWA 快捷方式:独立窗口 + 重复启动复用同一窗口,不会在浏览器里堆标签页
+                // 令牌只在"桌宠自己启动的服务仍存活"时有效;外部启动或已退出的服务一律走原有路径
+                string tokenUrl = OurServiceRunning() ? serviceUrl : "";
+                bool wantToken = (OpenMode == "token") || (OpenMode == "auto" && !serviceUrlUsed);
+
+                if (tokenUrl.Length > 0 && wantToken)
+                {
+                    serviceUrlUsed = true;
+                    LogLaunch("开窗方式: 令牌地址(换 cookie 后自动跳回干净地址)");
+                    if (OpenViaChromeApp(tokenUrl)) return;
+                    // 未找到 Chrome:交给默认浏览器完成同样的令牌交换
+                    Process.Start(new ProcessStartInfo(tokenUrl) { UseShellExecute = true });
+                    return;
+                }
+
+                if (OpenMode == "token" && tokenUrl.Length == 0)
+                {
+                    // 明确要求令牌地址但没捕获到(服务由外部启动) → 退化为裸地址
+                    LogLaunch("开窗方式: 未捕获到令牌地址,退化为裸地址");
+                    Process.Start(new ProcessStartInfo(DshUrl) { UseShellExecute = true });
+                    return;
+                }
+
+                // 原有路径: PWA 快捷方式(独立窗口 + 重复启动复用同一窗口)
+                LogLaunch("开窗方式: PWA 快捷方式");
                 if (PwaShortcut.Length > 0 && File.Exists(PwaShortcut))
                 {
                     Process.Start(new ProcessStartInfo(PwaShortcut) { UseShellExecute = true });
@@ -350,6 +417,95 @@ namespace DSHWhalePet
                 }
             }
             catch { }
+        }
+
+        void LogLaunch(string message)
+        {
+            try { File.AppendAllText(LaunchLogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + "\n"); } catch { }
+        }
+
+        // ── 令牌地址捕获 ──
+        // 从服务输出里抓取形如 "dsh web: http://127.0.0.1:3080/?token=xxx" 的一行。
+        void CaptureServiceUrl(string line)
+        {
+            try
+            {
+                if (line == null || line.Length == 0) return;
+                int at = line.IndexOf("dsh web:", StringComparison.OrdinalIgnoreCase);
+                string candidate = at >= 0 ? line.Substring(at + 8) : line;
+                candidate = candidate.Trim();
+                int space = candidate.IndexOf(' ');
+                if (space > 0) candidate = candidate.Substring(0, space);
+                if (candidate.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                    && candidate.IndexOf("token=", StringComparison.OrdinalIgnoreCase) > 0)
+                {
+                    serviceUrl = candidate;
+                    serviceUrlUsed = false;
+                    LogLaunch("已捕获令牌地址(用于开窗时自愈 cookie)");
+                }
+            }
+            catch { }
+        }
+
+        // ── Chrome ──
+        string FindChrome()
+        {
+            string[] cands = {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"Google\Chrome\Application\chrome.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"Google\Chrome\Application\chrome.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Google\Chrome\Application\chrome.exe")
+            };
+            foreach (string c in cands) { if (File.Exists(c)) return c; }
+            return "";
+        }
+
+        // 用 Chrome 的应用窗口模式打开指定地址(profile 与 PWA 快捷方式保持一致,才能共用 cookie)
+        bool OpenViaChromeApp(string url)
+        {
+            string chrome = FindChrome();
+            if (chrome.Length == 0) return false;
+            string profile = ChromeProfile;
+            if (profile.Length == 0) profile = ProfileFromShortcut();
+            if (profile.Length == 0) profile = "Default";
+            ProcessStartInfo psi = new ProcessStartInfo(chrome,
+                "--profile-directory=\"" + profile + "\" --app=\"" + url + "\"");
+            psi.UseShellExecute = false;
+            Process.Start(psi);
+            return true;
+        }
+
+        // 从 PWA 快捷方式参数里读取 --profile-directory(读不到则返回空)
+        string ProfileFromShortcut()
+        {
+            try
+            {
+                if (PwaShortcut.Length == 0 || !File.Exists(PwaShortcut)) return "";
+                string args = ReadShortcutArguments(PwaShortcut);
+                int at = args.IndexOf("--profile-directory=", StringComparison.OrdinalIgnoreCase);
+                if (at < 0) return "";
+                string rest = args.Substring(at + "--profile-directory=".Length).Trim();
+                if (rest.StartsWith("\"")) rest = rest.Substring(1);
+                int end = rest.IndexOfAny(new char[] { '"', ' ' });
+                return end > 0 ? rest.Substring(0, end) : rest;
+            }
+            catch { return ""; }
+        }
+
+        string ReadShortcutArguments(string lnkPath)
+        {
+            try
+            {
+                Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null) return "";
+                object shell = Activator.CreateInstance(shellType);
+                object shortcut = shellType.InvokeMember("CreateShortcut",
+                    System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { lnkPath });
+                if (shortcut == null) return "";
+                object args = shortcut.GetType().InvokeMember("Arguments",
+                    System.Reflection.BindingFlags.GetProperty, null, shortcut, null);
+                return args as string ?? "";
+            }
+            catch { return ""; }
         }
 
         // ── 托盘 ──
@@ -368,13 +524,56 @@ namespace DSHWhalePet
 
             tray = new NotifyIcon();
             tray.Icon = trayIcon;
-            tray.Text = "DSH 桌宠 - " + (online ? "在线" : "离线");
+            tray.Text = TrayText();
             tray.Visible = true;
             tray.ContextMenuStrip = menu;
             tray.MouseUp += delegate(object s, MouseEventArgs e)
             {
-                if (e.Button == MouseButtons.Left) OpenProgram();
+                if (e.Button != MouseButtons.Left) return;
+                // 已最小化 → 单击唤起鲸鱼娘;未最小化 → 沿用原有行为(打开 GUI)
+                if (minimizedToTray) RestoreFromTray();
+                else OpenProgram();
             };
+        }
+
+        // ── 最小化至托盘 / 还原 ──
+        string TrayText()
+        {
+            string state = minimizedToTray ? "已最小化(单击图标显示)" : (online ? "在线" : "离线");
+            return "DSH 桌宠 - " + state;
+        }
+
+        void MinimizeToTray()
+        {
+            if (minimizedToTray) return;
+            try
+            {
+                SaveConfig();      // 记住当前位置,还原时仍在原处
+                minimizedToTray = true;
+                Hide();            // 只隐藏鲸鱼娘;托盘图标常驻,可随时单击唤起
+                if (tray != null)
+                {
+                    tray.Text = TrayText();
+                    tray.ShowBalloonTip(3000, "DSH 桌宠", "已最小化至托盘,单击托盘图标可重新显示。", ToolTipIcon.Info);
+                }
+                LogLaunch("已最小化至托盘");
+            }
+            catch { }
+        }
+
+        void RestoreFromTray()
+        {
+            if (!minimizedToTray) return;
+            try
+            {
+                minimizedToTray = false;
+                Show();
+                BringToFront();
+                ApplyLayer();      // 分层窗口需要重绘一次
+                if (tray != null) tray.Text = TrayText();
+                LogLaunch("已从托盘还原");
+            }
+            catch { }
         }
 
         // ── 状态监测(绿/红两态,自适应频率) ──
@@ -400,8 +599,8 @@ namespace DSHWhalePet
             checking = false;
             online = ok;
             statusTimer.Interval = ok ? ONLINE_MS : OFFLINE_MS;
-            ApplyLayer();
-            if (tray != null) tray.Text = "DSH 桌宠 - " + (ok ? "在线" : "离线");
+            if (!minimizedToTray) ApplyLayer();   // 已隐藏时不必重绘(还原时会重绘)
+            if (tray != null) tray.Text = TrayText();
             if (ok && waitingForReady)
             {
                 waitingForReady = false;
@@ -476,6 +675,10 @@ namespace DSHWhalePet
             startedService = true;
             waitStart = DateTime.Now;
             slowNotified = false;
+            // 新一轮服务:清掉上一轮的令牌状态,避免拿旧令牌开窗(旧进程的令牌必然失效)
+            serviceUrl = "";
+            serviceUrlUsed = false;
+            openPending = false;
             try
             {
                 // 直接 node <bin.js> web --no-open,等价于 npx @deepseek-ai/dsh web
@@ -499,11 +702,19 @@ namespace DSHWhalePet
                 // 异步把服务输出写入日志,避免管道缓冲堵塞服务
                 serverProc.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
                 {
-                    if (e.Data != null) { try { File.AppendAllText(ServerLogPath, e.Data + "\n"); } catch { } }
+                    if (e.Data != null)
+                    {
+                        try { File.AppendAllText(ServerLogPath, e.Data + "\n"); } catch { }
+                        CaptureServiceUrl(e.Data);
+                    }
                 };
                 serverProc.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e)
                 {
-                    if (e.Data != null) { try { File.AppendAllText(ServerLogPath, e.Data + "\n"); } catch { } }
+                    if (e.Data != null)
+                    {
+                        try { File.AppendAllText(ServerLogPath, e.Data + "\n"); } catch { }
+                        CaptureServiceUrl(e.Data);
+                    }
                 };
                 serverProc.BeginOutputReadLine();
                 serverProc.BeginErrorReadLine();
@@ -556,6 +767,28 @@ namespace DSHWhalePet
             ClosePwaWindow();
         }
 
+        // ── 关闭 GUI 窗口 ──
+        // 窗口标题随 dsh 版本/页面状态变化,实测至少两种格式:
+        //   应用窗口(旧格式/错误页): "DeepSeek Harness - 127.0.0.1"    ← 应用名在前
+        //   应用窗口(新版 GUI):      "<会话标题> — DeepSeek Harness"    ← 应用名在后(0.1.5 起)
+        // 只判断"以应用名开头"会漏掉新版格式(表现为:服务已停但窗口不关,页面显示"正在自动重连")。
+        // 因此改为"包含应用名"匹配,并排除标题里带浏览器名的普通浏览器窗口,
+        // 避免把用户正在浏览的窗口整窗关掉(原有设计意图:只关 GUI 窗口,不影响其他页面)。
+        static readonly string[] BrowserTitleMarkers = {
+            "Google Chrome", "Microsoft Edge", "Mozilla Firefox", "Brave", "Opera", "Vivaldi", "Safari", "360"
+        };
+
+        bool IsGuiWindowTitle(string title)
+        {
+            if (title.Length == 0 || PwaWindowTitle.Length == 0) return false;
+            if (title.IndexOf(PwaWindowTitle, StringComparison.OrdinalIgnoreCase) < 0) return false;
+            foreach (string marker in BrowserTitleMarkers)
+            {
+                if (title.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            }
+            return true;
+        }
+
         void ClosePwaWindow()
         {
             try
@@ -566,9 +799,7 @@ namespace DSHWhalePet
                     {
                         StringBuilder sb = new StringBuilder(512);
                         GetWindowText(hWnd, sb, 512);
-                        string title = sb.ToString();
-                        // PWA 窗口标题以应用名开头(如 "DeepSeek Harness - ..."),普通浏览器标签页不会
-                        if (title.StartsWith(PwaWindowTitle, StringComparison.Ordinal))
+                        if (IsGuiWindowTitle(sb.ToString()))
                         {
                             PostMessage(hWnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
                         }
@@ -641,6 +872,8 @@ namespace DSHWhalePet
                 sb.AppendLine("dshBin=" + cfgDshBin);
                 sb.AppendLine("pwaShortcut=" + cfgPwaShortcut);
                 sb.AppendLine("pwaWindowTitle=" + cfgPwaWindowTitle);
+                sb.AppendLine("openMode=" + cfgOpenMode);
+                sb.AppendLine("chromeProfile=" + cfgChromeProfile);
                 sb.AppendLine("port=" + cfgPort);
                 sb.AppendLine("lastX=" + Location.X);
                 sb.AppendLine("lastY=" + Location.Y);
@@ -673,6 +906,8 @@ namespace DSHWhalePet
                             case "dshBin": cfgDshBin = val; break;
                             case "pwaShortcut": cfgPwaShortcut = val; break;
                             case "pwaWindowTitle": if (val.Length > 0) cfgPwaWindowTitle = val; break;
+                            case "openMode": if (val == "auto" || val == "pwa" || val == "token") cfgOpenMode = val; break;
+                            case "chromeProfile": cfgChromeProfile = val; break;
                             case "port": int p; if (int.TryParse(val, out p) && p > 0) cfgPort = p; break;
                             case "lastX": int lx; if (int.TryParse(val, out lx)) cfgLastX = lx; break;
                             case "lastY": int ly; if (int.TryParse(val, out ly)) cfgLastY = ly; break;
@@ -838,7 +1073,12 @@ namespace DSHWhalePet
                     {
                         try
                         {
-                            BeginInvoke(new Action(delegate() { OpenProgram(); }));
+                            BeginInvoke(new Action(delegate()
+                            {
+                                // 再次运行 exe:若鲸鱼娘被最小化到托盘,先把她喊回来;否则照旧打开 GUI
+                                if (minimizedToTray) RestoreFromTray();
+                                else OpenProgram();
+                            }));
                         }
                         catch { }
                     }
