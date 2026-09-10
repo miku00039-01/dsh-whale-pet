@@ -49,7 +49,7 @@ jobs:
         run: bash .github/scripts/extract-changelog.sh "$GITHUB_REF_NAME" CHANGELOG.md RELEASE_BODY.md
 
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: DSHWhalePet-exe
           path: dist
