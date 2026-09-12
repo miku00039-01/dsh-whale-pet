@@ -41,10 +41,20 @@
 ### 方式一:作为 DSH 插件安装(推荐)
 
 ```sh
+# 从 npm 安装(推荐,npm 包名为 @miku00039-01/dsh-whale-pet)
+dsh plugin --profile web add @miku00039-01/dsh-whale-pet
+
+# 或直接从 GitHub 安装(无需 npm)
 dsh plugin --profile web add github:miku00039-01/dsh-whale-pet
 ```
 
-安装后在 DSH 里输入 `/whalepet` 即可启动鲸鱼娘桌宠。(本插件已在 [awesome-dsh-plugin](https://awesome-dsh-plugin.com) 收录流程中。)
+安装后在 DSH 里输入 `/whalepet` 即可启动鲸鱼娘桌宠。插件市场(dsh-market)里搜索 `dsh-whale-pet` 也能一键安装。
+
+> **关于包名**:npm 上 `dsh-whale-pet` 已被他人占用,因此本插件发布在作用域下 `@miku00039-01/dsh-whale-pet`。
+> `package.json` 的 `name`、`cordis.patch.yml` 的 `name` 与 profile 里的依赖键必须三处一致。
+>
+> **关于宿主要求**:插件市场卡片上的"宿主要求"读自 npm manifest 的 `engines.dsh`(本包声明 `>=0.1.0-rc.6`);
+> 只从 GitHub 安装、未发布到 npm 的插件,市场读不到 manifest,会显示"宿主要求未知"——这是市场刻意不猜测的设计。
 
 ### 方式二:直接下载 exe
 

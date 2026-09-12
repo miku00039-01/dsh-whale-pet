@@ -1,4 +1,5 @@
 # dsh bundle patch: 注册 /whalepet 命令,启动鲸鱼娘桌面宠物
+# name 必须是包在 profile 里的解析名(即 npm 包名),改名后需与 package.json 的 name 一致
 - insert:
     - id: dsh-whale-pet
-      name: 'dsh-whale-pet'
+      name: '@miku00039-01/dsh-whale-pet'

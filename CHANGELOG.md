@@ -4,6 +4,16 @@ All notable changes to **DSH Whale Pet** are documented here.
 
 ## [v1.14] - 2026-09-10
 
+### Packaging(首次发布到 npm)
+- **npm 包名改为 `@miku00039-01/dsh-whale-pet`**:npm 上 `dsh-whale-pet` 已被他人占用(eric0v0 的另一款鲸鱼桌宠),
+  故改用作用域包名。同步改了 `cordis.patch.yml` 的 `name`(与包名一致)与文档里的安装命令;
+  本地 profile 的依赖键也需随之改为作用域名。
+- **声明宿主要求 `engines.dsh: ">=0.1.0-rc.6"`**:插件市场(dsh-market)卡片上的"宿主要求"读的是 npm manifest 的
+  `engines.dsh`(或 lockstep 的 `@deepseek-ai/dsh-*` peer 依赖);未发布到 npm 的 GitHub-only 插件读不到 manifest,
+  只会显示"宿主要求未知"。只写下限是为了避免以后新版 dsh 被误判为不兼容。
+- 发布到 npm 后,目录站(awesome-dsh-plugin)每日自动重探未发布插件,`npm`/`version`/`downloads` 字段会自动补齐,
+  市场随即显示宿主要求与每周下载量(下载量口径 = npm last-week downloads)。
+
 ### Added
 - **右键菜单新增「🗕 最小化至托盘」**:单击后鲸鱼娘隐藏(仅保留托盘图标),托盘提示变为"已最小化(单击图标显示)"并弹出一次气泡提示。
   - **单击托盘图标即可唤起**:已最小化时单击还原鲸鱼娘(回到原位置、状态点立即重绘);未最小化时单击仍是原有行为(打开 GUI)。
