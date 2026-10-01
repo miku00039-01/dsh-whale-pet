@@ -75,7 +75,7 @@ dsh plugin --profile web add github:miku00039-01/dsh-whale-pet
 | `openMode` | `auto` | 开窗方式:`auto`(优先用令牌地址自愈 cookie)/ `pwa`(只走快捷方式)/ `token`(只用令牌地址) |
 | `chromeProfile` | 从快捷方式读取 | Chrome 配置目录名(令牌地址开窗时与 PWA 共用 cookie);留空 = 自动读取 |
 | `mode` | `auto` | 运行模式:`auto`(检测到桌面端就用桌面端逻辑,否则回落 CLI)/ `desktop`(只认桌面端)/ `cli`(只认命令行服务) |
-| `desktopExe` | 自动探测 | DSH **桌面端**(Electron 应用)exe 路径;留空则探测 `D:\dsh\DeepSeek Harness.exe` 等常见位置 |
+| `desktopExe` | 自动探测 | DSH **桌面端**(Electron 应用)exe 路径;留空则自动探测(见下方"桌面端怎么被找到") |
 | `port` | `3080` | CLI 模式的 DSH 服务端口(桌面端模式下不使用) |
 | `lastX` / `lastY` | -1 | 鲸鱼娘上次位置(自动记录) |
 
@@ -96,6 +96,22 @@ DSH 现在有两种形态,桌宠会**自动识别**并切换行为(`mode=auto`):
 > **为什么要分模式**:桌面端是 Electron 应用,自带 dsh 服务并自带窗口(端口由应用自己分配,实测 19387,且同样有令牌围栏)。
 > 如果桌宠还按老逻辑去拉一个 CLI 实例,就会出现**两套 GUI、两份会话、两个端口**——所以桌面端模式下桌宠只做"伴侣"(唤起窗口/看状态),不再碰服务生命周期。
 > 强制指定模式:把 `mode` 设为 `desktop` 或 `cli`。
+
+### 桌面端怎么被找到(不依赖安装路径)
+
+别人的安装位置可能完全不同,所以桌宠按 5 条途径依次探测,任意一条命中即可:
+
+| # | 途径 | 说明 |
+|---|---|---|
+| 1 | `desktopExe` 配置 | 你手工指定的完整路径(最稳) |
+| 2 | **注册表卸载信息** | `DisplayName` 含 `DeepSeek Harness` → 读 `InstallLocation` / `DisplayIcon` / `UninstallString` |
+| 3 | **开始菜单快捷方式** | 名字含 `Harness` 的 `.lnk` → 解析其目标路径 |
+| 4 | 常见安装位置 | `Program Files`、`%LOCALAPPDATA%\Programs`、`C:\dsh`、`D:\dsh` |
+| 5 | **运行中的进程反查** | 从桌面端进程读它的可执行文件路径 |
+
+并且**即使一个 exe 都没探到**,只要桌面端**进程在跑**、或存在桌面端用户数据目录
+(`%APPDATA%\@deepseek-ai\dsh-desktop`),也会判定为桌面端模式——所以不会因为"路径不同"而误起 CLI 实例。
+进程与窗口匹配也会用上探测到的 exe 文件名(改名版、便携版同样能认)。
 
 ## 🖥️ 打开行为与开关(CLI 模式)
 

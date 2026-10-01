@@ -91,7 +91,7 @@ namespace DSHWhalePet
         string Mode { get { return cfgMode; } }
         string DesktopExe { get { return cfgDesktopExe; } }
 
-        const string VERSION = "v1.15";
+        const string VERSION = "v1.16";
         const int ONLINE_MS = 5000;   // 在线检测间隔
         const int OFFLINE_MS = 2000;  // 离线检测间隔
         const string RES_NAME = "DSHWhalePet.pet.png";
@@ -185,6 +185,7 @@ namespace DSHWhalePet
             if (UseDesktopMode())
             {
                 LogLaunch("运行模式: 桌面端(不拉起 CLI 实例)");
+                LogLaunch(DesktopExe.Length > 0 ? ("桌面端 exe: " + DesktopExe) : "桌面端 exe: 未探测到(可在配置里设置 desktopExe)");
                 if (DesktopAppRunning()) LogLaunch("检测到桌面端正在运行");
             }
             else if (IsPortOpen(700))
@@ -356,32 +357,98 @@ namespace DSHWhalePet
             menu.Items.Add("🚪 退出", null, delegate { ExitAll(); });
         }
 
-        // ── 桌面端模式(Electron 应用,如 D:\dsh\DeepSeek Harness.exe) ──
-        // 桌面端自带 dsh 服务(端口由应用自己选,实测 19387)并且自带窗口。这种情况下桌宠
-        // 不应该再拉起一个 CLI 实例(否则会出现两套 GUI、两份会话、两个端口),而应该:
+        // ── 桌面端模式(Electron 应用) ──
+        // 桌面端自带 dsh 服务(端口由应用自己分配,实测 19387)并自带窗口。这种情况下桌宠不应该
+        // 再拉起一个 CLI 实例(否则会出现两套 GUI、两份会话、两个端口),而应该:
         //   在线判定 = 桌面端进程是否在跑
         //   打开程序 = 把桌面端窗口置顶(没跑就先启动它)
         //   关闭程序 = 只关桌面端窗口,不动它的服务进程
+        //
+        // 别人的安装路径可能完全不同,所以这里不依赖固定路径,按以下顺序探测:
+        //   ① 用户配置的 desktopExe
+        //   ② 注册表卸载信息(DisplayName 含 "DeepSeek Harness" → InstallLocation/DisplayIcon/UninstallString)
+        //   ③ 开始菜单快捷方式(名字含 Harness 的 .lnk)→ 解析快捷方式目标
+        //   ④ 常见安装位置(Program Files / LocalAppData\Programs / D:\dsh)
+        //   ⑤ 从正在运行的桌面端进程反查可执行文件路径
+        // 即使 exe 一个都没探到,只要"进程在跑"或"存在桌面端用户数据目录",也判定为桌面端模式——
+        // 这样不会因为路径不同而错误地另起一个 CLI 实例。
         const string DESKTOP_PROCESS = "DeepSeek Harness";
+        const string DESKTOP_USERDATA = @"@deepseek-ai\dsh-desktop";   // %APPDATA% 下的桌面端用户数据目录
 
-        // auto: 装了桌面端或桌面端正在跑 → 用桌面端逻辑;否则回落 CLI
-        bool UseDesktopMode()
+        // 需要匹配的进程名:默认名 + 探测到的 exe 文件名(用户可能改名或装到别处)
+        System.Collections.Generic.List<string> DesktopProcessNames()
         {
-            if (Mode == "desktop") return true;
-            if (Mode == "cli") return false;
-            return DesktopExe.Length > 0 || DesktopAppRunning();
+            var names = new System.Collections.Generic.List<string>();
+            names.Add(DESKTOP_PROCESS);
+            try
+            {
+                string exe = DesktopExe;
+                if (exe.Length > 0)
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(exe);
+                    if (baseName.Length > 0 && !names.Contains(baseName)) names.Add(baseName);
+                }
+            }
+            catch { }
+            return names;
+        }
+
+        // 进程是否属于桌面端:进程名匹配,或可执行文件路径就是探测到的 exe
+        bool IsDesktopProcess(Process p)
+        {
+            try
+            {
+                foreach (string n in DesktopProcessNames())
+                {
+                    if (string.Equals(p.ProcessName, n, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+            catch { }
+            try
+            {
+                string exe = DesktopExe;
+                if (exe.Length > 0 && p.MainModule != null
+                    && string.Equals(p.MainModule.FileName, exe, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            catch { }
+            return false;
         }
 
         bool DesktopAppRunning()
         {
             try
             {
-                Process[] ps = Process.GetProcessesByName(DESKTOP_PROCESS);
-                int n = ps.Length;
-                foreach (Process p in ps) { try { p.Dispose(); } catch { } }
-                return n > 0;
+                foreach (string n in DesktopProcessNames())
+                {
+                    Process[] ps = Process.GetProcessesByName(n);
+                    bool any = ps.Length > 0;
+                    foreach (Process p in ps) { try { p.Dispose(); } catch { } }
+                    if (any) return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        // 是否"装了桌面端":探到 exe、进程在跑、或存在桌面端用户数据目录
+        bool DesktopAppInstalled()
+        {
+            if (DesktopExe.Length > 0) return true;
+            if (DesktopAppRunning()) return true;
+            try
+            {
+                return Directory.Exists(Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), DESKTOP_USERDATA));
             }
             catch { return false; }
+        }
+
+        // auto: 装了桌面端 → 用桌面端逻辑;否则回落 CLI
+        bool UseDesktopMode()
+        {
+            if (Mode == "desktop") return true;
+            if (Mode == "cli") return false;
+            return DesktopAppInstalled();
         }
 
         // 找桌面端窗口:按"窗口属主进程名 == 桌面端进程名"匹配(比标题匹配更准,不会误伤浏览器窗口)
@@ -400,7 +467,7 @@ namespace DSHWhalePet
                     {
                         using (Process p = Process.GetProcessById((int)pid))
                         {
-                            isDesktop = string.Equals(p.ProcessName, DESKTOP_PROCESS, StringComparison.OrdinalIgnoreCase);
+                            isDesktop = IsDesktopProcess(p);
                         }
                     }
                     catch { }
@@ -431,7 +498,18 @@ namespace DSHWhalePet
         void LaunchDesktopApp()
         {
             string exe = DesktopExe;
-            if (exe.Length == 0) { LogLaunch("未找到桌面端 exe,无法启动"); return; }
+            if (exe.Length == 0)
+            {
+                LogLaunch("未找到桌面端 exe,无法启动(可在配置里设置 desktopExe 手工指定)");
+                try
+                {
+                    tray.ShowBalloonTip(6000, "DSH 桌宠",
+                        "没有自动找到桌面端程序。请在配置文件 dsh-whale-pet.conf 里设置 desktopExe=桌面端 exe 的完整路径。",
+                        ToolTipIcon.Warning);
+                }
+                catch { }
+                return;
+            }
             LogLaunch("启动桌面端: " + exe);
             try
             {
@@ -955,17 +1033,21 @@ namespace DSHWhalePet
         }
 
         // ── 退出 ──
+        // 桌面端模式:退出桌宠**不动桌面端**(它是你正在用的应用);CLI 模式:连服务一起退
         void ExitAll()
         {
             if (exitingAll) return;
+            bool desktop = UseDesktopMode();
             DialogResult r = MessageBox.Show(
-                "退出桌宠将同时关闭 DSH 服务,确定退出吗?",
+                desktop
+                    ? "退出桌宠?(不会关闭桌面端 DeepSeek Harness)"
+                    : "退出桌宠将同时关闭 DSH 服务,确定退出吗?",
                 "DSH 桌宠",
                 MessageBoxButtons.OKCancel,
                 MessageBoxIcon.Question);
             if (r != DialogResult.OK) return;
             exitingAll = true;
-            StopService();
+            if (!desktop) StopService();   // 桌面端模式不碰桌面端进程/窗口
             SaveConfig();
             Application.Exit();
         }
@@ -974,8 +1056,8 @@ namespace DSHWhalePet
         {
             if (!exitingAll)
             {
-                // 非菜单退出(理论上不会发生,兜底):直接退,不动服务?按规格退出=连服务,这里也停
-                StopService();
+                // 非菜单退出(理论上不会发生,兜底):CLI 模式下按规格连服务一起停
+                if (!UseDesktopMode()) StopService();
             }
             SaveConfig();
             if (tray != null) { tray.Visible = false; tray.Dispose(); tray = null; }
@@ -1121,32 +1203,160 @@ namespace DSHWhalePet
             return "";
         }
 
-        // 探测桌面端(Electron 应用)的 exe:常见安装位置 + 从正在运行的进程反查路径
+        // 探测桌面端(Electron 应用)的 exe —— 尽量不依赖安装位置:
+        //   ① 正在运行的进程反查(最准) ② 注册表卸载信息 ③ 开始菜单快捷方式 ④ 常见安装位置
         string DetectDesktopExe()
         {
-            string[] cands = {
-                @"D:\dsh\DeepSeek Harness.exe",
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\DeepSeek Harness\DeepSeek Harness.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"DeepSeek Harness\DeepSeek Harness.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"DeepSeek Harness\DeepSeek Harness.exe")
-            };
-            foreach (string c in cands) { try { if (File.Exists(c)) return c; } catch { } }
-            // 已装但不在常见位置:从正在运行的桌面端进程反查可执行文件路径
+            // ① 进程反查
             try
             {
-                foreach (Process p in Process.GetProcessesByName(DESKTOP_PROCESS))
+                foreach (string n in new string[] { DESKTOP_PROCESS })
+                {
+                    foreach (Process p in Process.GetProcessesByName(n))
+                    {
+                        try
+                        {
+                            string path = p.MainModule != null ? p.MainModule.FileName : "";
+                            if (path.Length > 0 && File.Exists(path)) return path;
+                        }
+                        catch { }
+                        finally { try { p.Dispose(); } catch { } }
+                    }
+                }
+            }
+            catch { }
+            // ② 注册表卸载信息
+            string fromRegistry = DesktopExeFromRegistry();
+            if (fromRegistry.Length > 0) return fromRegistry;
+            // ③ 开始菜单快捷方式
+            string fromMenu = DesktopExeFromStartMenu();
+            if (fromMenu.Length > 0) return fromMenu;
+            // ④ 常见安装位置
+            string[] cands = {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\DeepSeek Harness\DeepSeek Harness.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"DeepSeek Harness\DeepSeek Harness.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"DeepSeek Harness\DeepSeek Harness.exe"),
+                @"D:\dsh\DeepSeek Harness.exe",
+                @"C:\dsh\DeepSeek Harness.exe"
+            };
+            foreach (string c in cands) { try { if (File.Exists(c)) return c; } catch { } }
+            return "";
+        }
+
+        // 从注册表卸载信息里找桌面端(安装器一般都会登记,与安装盘符无关)
+        string DesktopExeFromRegistry()
+        {
+            string[] subKeys = {
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+            };
+            Microsoft.Win32.RegistryKey[] hives = { Microsoft.Win32.Registry.CurrentUser, Microsoft.Win32.Registry.LocalMachine };
+            foreach (Microsoft.Win32.RegistryKey hive in hives)
+            {
+                foreach (string sub in subKeys)
                 {
                     try
                     {
-                        string path = p.MainModule != null ? p.MainModule.FileName : "";
-                        if (path.Length > 0 && File.Exists(path)) return path;
+                        using (Microsoft.Win32.RegistryKey root = hive.OpenSubKey(sub))
+                        {
+                            if (root == null) continue;
+                            foreach (string name in root.GetSubKeyNames())
+                            {
+                                try
+                                {
+                                    using (Microsoft.Win32.RegistryKey app = root.OpenSubKey(name))
+                                    {
+                                        if (app == null) continue;
+                                        string display = app.GetValue("DisplayName") as string;
+                                        if (display == null || display.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                        string found = FindHarnessExeIn(app.GetValue("InstallLocation") as string);
+                                        if (found.Length > 0) return found;
+                                        string icon = app.GetValue("DisplayIcon") as string;
+                                        if (!string.IsNullOrEmpty(icon))
+                                        {
+                                            string p = icon.Trim('"');
+                                            int comma = p.IndexOf(',');
+                                            if (comma > 0) p = p.Substring(0, comma);
+                                            if (p.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(p)) return p;
+                                        }
+                                        string uninstall = app.GetValue("UninstallString") as string;
+                                        if (!string.IsNullOrEmpty(uninstall))
+                                        {
+                                            string dir = Path.GetDirectoryName(uninstall.Trim('"'));
+                                            found = FindHarnessExeIn(dir);
+                                            if (found.Length > 0) return found;
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
                     }
                     catch { }
-                    finally { try { p.Dispose(); } catch { } }
+                }
+            }
+            return "";
+        }
+
+        // 在目录里找形如 *Harness*.exe 的主程序(排除卸载器)
+        string FindHarnessExeIn(string dir)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return "";
+                string direct = Path.Combine(dir, "DeepSeek Harness.exe");
+                if (File.Exists(direct)) return direct;
+                foreach (string f in Directory.GetFiles(dir, "*.exe"))
+                {
+                    string n = Path.GetFileName(f);
+                    if (n.IndexOf("Harness", StringComparison.OrdinalIgnoreCase) >= 0
+                        && n.IndexOf("Uninstall", StringComparison.OrdinalIgnoreCase) < 0) return f;
                 }
             }
             catch { }
             return "";
+        }
+
+        // 从开始菜单快捷方式(当前用户 + 所有用户)解析桌面端 exe
+        string DesktopExeFromStartMenu()
+        {
+            string[] dirs = {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu), "Programs"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs")
+            };
+            foreach (string d in dirs)
+            {
+                try
+                {
+                    if (!Directory.Exists(d)) continue;
+                    foreach (string lnk in Directory.GetFiles(d, "*.lnk", SearchOption.AllDirectories))
+                    {
+                        if (Path.GetFileNameWithoutExtension(lnk).IndexOf("Harness", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                        string target = ReadShortcutTarget(lnk);
+                        if (target.Length > 0 && target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(target)) return target;
+                    }
+                }
+                catch { }
+            }
+            return "";
+        }
+
+        // 读取 .lnk 的目标路径(经 WScript.Shell)
+        string ReadShortcutTarget(string lnkPath)
+        {
+            try
+            {
+                Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null) return "";
+                object shell = Activator.CreateInstance(shellType);
+                object shortcut = shellType.InvokeMember("CreateShortcut",
+                    System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { lnkPath });
+                if (shortcut == null) return "";
+                object target = shortcut.GetType().InvokeMember("TargetPath",
+                    System.Reflection.BindingFlags.GetProperty, null, shortcut, null);
+                return target as string ?? "";
+            }
+            catch { return ""; }
         }
 
         string DetectPwaShortcut(string workspace)
@@ -1209,15 +1419,18 @@ namespace DSHWhalePet
                 DateTime dstart = DateTime.MinValue;
                 try
                 {
-                    foreach (Process p in Process.GetProcessesByName(DESKTOP_PROCESS))
+                    foreach (string pname in DesktopProcessNames())
                     {
-                        try
+                        foreach (Process p in Process.GetProcessesByName(pname))
                         {
-                            DateTime st = p.StartTime;
-                            if (dpid == 0 || st < dstart) { dpid = p.Id; dstart = st; }
+                            try
+                            {
+                                DateTime st = p.StartTime;
+                                if (dpid == 0 || st < dstart) { dpid = p.Id; dstart = st; }
+                            }
+                            catch { }
+                            try { p.Dispose(); } catch { }
                         }
-                        catch { }
-                        try { p.Dispose(); } catch { }
                     }
                 }
                 catch { }
