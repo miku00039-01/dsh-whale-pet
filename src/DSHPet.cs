@@ -91,7 +91,7 @@ namespace DSHWhalePet
         string Mode { get { return cfgMode; } }
         string DesktopExe { get { return cfgDesktopExe; } }
 
-        const string VERSION = "v1.16";
+        const string VERSION = "v1.17";
         const int ONLINE_MS = 5000;   // 在线检测间隔
         const int OFFLINE_MS = 2000;  // 离线检测间隔
         const string RES_NAME = "DSHWhalePet.pet.png";
@@ -179,14 +179,23 @@ namespace DSHWhalePet
             statusTimer.Interval = OFFLINE_MS;
             statusTimer.Start();
 
-            // 首次启动行为:
-            //   桌面端模式 → 不拉起任何实例(桌面端由用户自己开;双击鲸鱼娘时再唤起它的窗口)
+            // 首次启动行为(两种模式都保证"DSH 界面是开着的",与"一键启动"的承诺一致):
+            //   桌面端模式 → 在跑就唤起它的窗口;没跑就启动它,窗口出现后自动置顶
             //   CLI 模式   → 服务在就直接开 GUI,不在就拉起服务、就绪后开 GUI
             if (UseDesktopMode())
             {
                 LogLaunch("运行模式: 桌面端(不拉起 CLI 实例)");
                 LogLaunch(DesktopExe.Length > 0 ? ("桌面端 exe: " + DesktopExe) : "桌面端 exe: 未探测到(可在配置里设置 desktopExe)");
-                if (DesktopAppRunning()) LogLaunch("检测到桌面端正在运行");
+                if (DesktopAppRunning())
+                {
+                    LogLaunch("检测到桌面端正在运行,唤起窗口");
+                    ActivateDesktopWindow();
+                }
+                else
+                {
+                    LogLaunch("桌面端未运行,启动它");
+                    LaunchDesktopApp();
+                }
             }
             else if (IsPortOpen(700))
             {
@@ -331,7 +340,7 @@ namespace DSHWhalePet
                     if ((now - lastClickTime).TotalMilliseconds < SystemInformation.DoubleClickTime)
                     {
                         lastClickTime = DateTime.MinValue;
-                        OpenGui();
+                        OpenProgram();   // 桌面端模式 = 唤起/启动桌面端窗口;CLI 模式 = 打开 GUI
                     }
                     else
                     {
