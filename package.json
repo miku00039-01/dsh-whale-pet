@@ -1,7 +1,7 @@
 {
   "name": "@miku00039-01/dsh-whale-pet",
-  "version": "1.14.0",
-  "description": "🐋 DSH 鲸鱼娘桌宠插件:/whalepet 命令启动 DeepSeek Harness 桌面宠物(启动/停止/监测服务、双击唤起 GUI)",
+  "version": "1.15.0",
+  "description": "🐋 DSH 鲸鱼娘桌宠插件:/whalepet 命令启动 DeepSeek Harness 桌面宠物(自动适配桌面端/命令行两种形态)",
   "type": "module",
   "main": "lib/index.js",
   "license": "MIT",

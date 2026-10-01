@@ -77,6 +77,8 @@ namespace DSHWhalePet
         int cfgLastX = -1, cfgLastY = -1; // 上次位置
         string cfgChromeProfile = "Default";  // Chrome 配置目录(与 PWA 快捷方式一致;空 = 从快捷方式参数读取)
         string cfgOpenMode = "auto";          // 开窗方式: auto = 优先令牌地址(自愈 cookie) | pwa = 只用快捷方式 | token = 只用令牌地址
+        string cfgMode = "auto";              // 运行模式: auto = 检测到桌面端就用桌面端,否则回落 CLI | desktop = 只认桌面端 | cli = 只认 CLI
+        string cfgDesktopExe = "";            // 桌面端 exe 路径(Electron 应用;空 = 自动探测)
 
         string WorkSpace { get { return cfgWorkspace.Length > 0 ? cfgWorkspace : AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'); } }
         string DshUrl { get { return "http://127.0.0.1:" + cfgPort; } }
@@ -86,8 +88,10 @@ namespace DSHWhalePet
         string PwaWindowTitle { get { return cfgPwaWindowTitle; } }
         string ChromeProfile { get { return cfgChromeProfile; } }
         string OpenMode { get { return cfgOpenMode; } }
+        string Mode { get { return cfgMode; } }
+        string DesktopExe { get { return cfgDesktopExe; } }
 
-        const string VERSION = "v1.14";
+        const string VERSION = "v1.15";
         const int ONLINE_MS = 5000;   // 在线检测间隔
         const int OFFLINE_MS = 2000;  // 离线检测间隔
         const string RES_NAME = "DSHWhalePet.pet.png";
@@ -144,8 +148,13 @@ namespace DSHWhalePet
         [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
         [DllImport("user32.dll")] static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
         delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
         const uint WM_CLOSE = 0x0010;
+        const int SW_RESTORE = 9;
 
         public PetForm(EventWaitHandle wake)
         {
@@ -170,13 +179,22 @@ namespace DSHWhalePet
             statusTimer.Interval = OFFLINE_MS;
             statusTimer.Start();
 
-            // 首次启动行为:服务在 → 直接开 GUI;不在 → 拉起服务,就绪后开 GUI
-            if (IsPortOpen(700))
+            // 首次启动行为:
+            //   桌面端模式 → 不拉起任何实例(桌面端由用户自己开;双击鲸鱼娘时再唤起它的窗口)
+            //   CLI 模式   → 服务在就直接开 GUI,不在就拉起服务、就绪后开 GUI
+            if (UseDesktopMode())
             {
+                LogLaunch("运行模式: 桌面端(不拉起 CLI 实例)");
+                if (DesktopAppRunning()) LogLaunch("检测到桌面端正在运行");
+            }
+            else if (IsPortOpen(700))
+            {
+                LogLaunch("运行模式: CLI");
                 OpenGui();
             }
             else
             {
+                LogLaunch("运行模式: CLI");
                 StartService();
                 waitingForReady = true;
             }
@@ -338,8 +356,132 @@ namespace DSHWhalePet
             menu.Items.Add("🚪 退出", null, delegate { ExitAll(); });
         }
 
+        // ── 桌面端模式(Electron 应用,如 D:\dsh\DeepSeek Harness.exe) ──
+        // 桌面端自带 dsh 服务(端口由应用自己选,实测 19387)并且自带窗口。这种情况下桌宠
+        // 不应该再拉起一个 CLI 实例(否则会出现两套 GUI、两份会话、两个端口),而应该:
+        //   在线判定 = 桌面端进程是否在跑
+        //   打开程序 = 把桌面端窗口置顶(没跑就先启动它)
+        //   关闭程序 = 只关桌面端窗口,不动它的服务进程
+        const string DESKTOP_PROCESS = "DeepSeek Harness";
+
+        // auto: 装了桌面端或桌面端正在跑 → 用桌面端逻辑;否则回落 CLI
+        bool UseDesktopMode()
+        {
+            if (Mode == "desktop") return true;
+            if (Mode == "cli") return false;
+            return DesktopExe.Length > 0 || DesktopAppRunning();
+        }
+
+        bool DesktopAppRunning()
+        {
+            try
+            {
+                Process[] ps = Process.GetProcessesByName(DESKTOP_PROCESS);
+                int n = ps.Length;
+                foreach (Process p in ps) { try { p.Dispose(); } catch { } }
+                return n > 0;
+            }
+            catch { return false; }
+        }
+
+        // 找桌面端窗口:按"窗口属主进程名 == 桌面端进程名"匹配(比标题匹配更准,不会误伤浏览器窗口)
+        IntPtr FindDesktopWindow()
+        {
+            IntPtr found = IntPtr.Zero;
+            try
+            {
+                EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+                {
+                    if (!IsWindowVisible(hWnd)) return true;
+                    uint pid;
+                    GetWindowThreadProcessId(hWnd, out pid);
+                    bool isDesktop = false;
+                    try
+                    {
+                        using (Process p = Process.GetProcessById((int)pid))
+                        {
+                            isDesktop = string.Equals(p.ProcessName, DESKTOP_PROCESS, StringComparison.OrdinalIgnoreCase);
+                        }
+                    }
+                    catch { }
+                    if (!isDesktop) return true;
+                    StringBuilder sb = new StringBuilder(512);
+                    GetWindowText(hWnd, sb, 512);
+                    if (sb.Length > 0) { found = hWnd; return false; }
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch { }
+            return found;
+        }
+
+        void ActivateDesktopWindow()
+        {
+            IntPtr h = FindDesktopWindow();
+            if (h == IntPtr.Zero) return;
+            try
+            {
+                if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
+                SetForegroundWindow(h);
+                LogLaunch("已唤起桌面端窗口");
+            }
+            catch { }
+        }
+
+        void LaunchDesktopApp()
+        {
+            string exe = DesktopExe;
+            if (exe.Length == 0) { LogLaunch("未找到桌面端 exe,无法启动"); return; }
+            LogLaunch("启动桌面端: " + exe);
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(exe);
+                psi.UseShellExecute = true;
+                psi.WorkingDirectory = Path.GetDirectoryName(exe);
+                Process.Start(psi);
+            }
+            catch (Exception ex) { LogLaunch("启动桌面端失败: " + ex.Message); return; }
+            // 等窗口出现后置顶(最多约 40 秒);桌面端是单实例应用,重复启动会唤起已有窗口
+            ThreadPool.QueueUserWorkItem(delegate(object st)
+            {
+                for (int i = 0; i < 200; i++)
+                {
+                    Thread.Sleep(200);
+                    if (FindDesktopWindow() != IntPtr.Zero)
+                    {
+                        try { BeginInvoke(new Action(ActivateDesktopWindow)); } catch { }
+                        return;
+                    }
+                }
+            });
+        }
+
+        void OpenDesktop()
+        {
+            if (!DesktopAppRunning()) { LaunchDesktopApp(); return; }
+            if (FindDesktopWindow() != IntPtr.Zero) { ActivateDesktopWindow(); return; }
+            // 在跑但没有可见窗口(例如已最小化到托盘):再启动一次,单实例应用通常会显示已有窗口
+            LogLaunch("桌面端在运行但未找到窗口,尝试再次唤起");
+            LaunchDesktopApp();
+        }
+
+        void CloseDesktopWindow()
+        {
+            IntPtr h = FindDesktopWindow();
+            if (h == IntPtr.Zero) { LogLaunch("关闭程序: 未找到桌面端窗口"); return; }
+            LogLaunch("关闭程序: 只关桌面端窗口(不杀服务进程)");
+            try { PostMessage(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); } catch { }
+        }
+
+        // 在线判定:桌面端模式看进程,CLI 模式看端口
+        bool ServiceOnline(int timeoutMs)
+        {
+            return UseDesktopMode() ? DesktopAppRunning() : IsPortOpen(timeoutMs);
+        }
+
         void OpenProgram()
         {
+            if (UseDesktopMode()) { OpenDesktop(); return; }
             if (IsPortOpen(600)) { OpenGui(); }
             else { StartService(); waitingForReady = true; }
         }
@@ -588,7 +730,7 @@ namespace DSHWhalePet
             checking = true;
             ThreadPool.QueueUserWorkItem(delegate
             {
-                bool ok = IsPortOpen(1500);
+                bool ok = ServiceOnline(1500);   // 桌面端模式看进程,CLI 模式看端口
                 try { BeginInvoke(new Action<bool>(ApplyStatus), ok); }
                 catch { }
             });
@@ -758,6 +900,8 @@ namespace DSHWhalePet
 
         void StopService()
         {
+            // 桌面端模式:服务由桌面端自己管理,这里只关它的窗口,绝不杀进程
+            if (UseDesktopMode()) { CloseDesktopWindow(); return; }
             int pid = FindPid();
             if (pid > 0)
             {
@@ -874,6 +1018,8 @@ namespace DSHWhalePet
                 sb.AppendLine("pwaWindowTitle=" + cfgPwaWindowTitle);
                 sb.AppendLine("openMode=" + cfgOpenMode);
                 sb.AppendLine("chromeProfile=" + cfgChromeProfile);
+                sb.AppendLine("mode=" + cfgMode);
+                sb.AppendLine("desktopExe=" + cfgDesktopExe);
                 sb.AppendLine("port=" + cfgPort);
                 sb.AppendLine("lastX=" + Location.X);
                 sb.AppendLine("lastY=" + Location.Y);
@@ -908,6 +1054,8 @@ namespace DSHWhalePet
                             case "pwaWindowTitle": if (val.Length > 0) cfgPwaWindowTitle = val; break;
                             case "openMode": if (val == "auto" || val == "pwa" || val == "token") cfgOpenMode = val; break;
                             case "chromeProfile": cfgChromeProfile = val; break;
+                            case "mode": if (val == "auto" || val == "desktop" || val == "cli") cfgMode = val; break;
+                            case "desktopExe": cfgDesktopExe = val; break;
                             case "port": int p; if (int.TryParse(val, out p) && p > 0) cfgPort = p; break;
                             case "lastX": int lx; if (int.TryParse(val, out lx)) cfgLastX = lx; break;
                             case "lastY": int ly; if (int.TryParse(val, out ly)) cfgLastY = ly; break;
@@ -918,6 +1066,7 @@ namespace DSHWhalePet
                 bool firstRun = !File.Exists(ConfigPath);
                 if (cfgNodePath.Length == 0) cfgNodePath = DetectNodePath();
                 if (cfgDshBin.Length == 0) cfgDshBin = DetectDshBin(cfgNodePath);
+                if (cfgDesktopExe.Length == 0) cfgDesktopExe = DetectDesktopExe();
                 if (cfgPwaShortcut.Length == 0) cfgPwaShortcut = DetectPwaShortcut(WorkSpace);
                 if (cfgLastX >= 0 && cfgLastY >= 0)
                 {
@@ -969,6 +1118,34 @@ namespace DSHWhalePet
             }
             cands.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"));
             foreach (string c in cands) { if (File.Exists(c)) return c; }
+            return "";
+        }
+
+        // 探测桌面端(Electron 应用)的 exe:常见安装位置 + 从正在运行的进程反查路径
+        string DetectDesktopExe()
+        {
+            string[] cands = {
+                @"D:\dsh\DeepSeek Harness.exe",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\DeepSeek Harness\DeepSeek Harness.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"DeepSeek Harness\DeepSeek Harness.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"DeepSeek Harness\DeepSeek Harness.exe")
+            };
+            foreach (string c in cands) { try { if (File.Exists(c)) return c; } catch { } }
+            // 已装但不在常见位置:从正在运行的桌面端进程反查可执行文件路径
+            try
+            {
+                foreach (Process p in Process.GetProcessesByName(DESKTOP_PROCESS))
+                {
+                    try
+                    {
+                        string path = p.MainModule != null ? p.MainModule.FileName : "";
+                        if (path.Length > 0 && File.Exists(path)) return path;
+                    }
+                    catch { }
+                    finally { try { p.Dispose(); } catch { } }
+                }
+            }
+            catch { }
             return "";
         }
 
@@ -1024,8 +1201,38 @@ namespace DSHWhalePet
 
         public string StatusServiceInfo()
         {
-            int pid = FindPid();
             string state = online ? "🟢 在线" : "🔴 离线";
+            // 桌面端模式:服务由桌面端自带(端口由应用分配),这里显示桌面端进程信息
+            if (UseDesktopMode())
+            {
+                int dpid = 0;
+                DateTime dstart = DateTime.MinValue;
+                try
+                {
+                    foreach (Process p in Process.GetProcessesByName(DESKTOP_PROCESS))
+                    {
+                        try
+                        {
+                            DateTime st = p.StartTime;
+                            if (dpid == 0 || st < dstart) { dpid = p.Id; dstart = st; }
+                        }
+                        catch { }
+                        try { p.Dispose(); } catch { }
+                    }
+                }
+                catch { }
+                string dup = "-";
+                if (dpid > 0)
+                {
+                    try { TimeSpan ts = DateTime.Now - dstart; dup = string.Format("{0}小时{1}分", ts.Hours, ts.Minutes); } catch { }
+                }
+                return "服务状态: " + state + " (桌面端)\n"
+                     + "服务地址: 桌面端自带(端口由应用分配)\n"
+                     + "工作区: " + WorkSpace + "\n"
+                     + "进程 PID: " + (dpid > 0 ? dpid.ToString() : "-") + "\n"
+                     + "运行时长: " + dup;
+            }
+            int pid = FindPid();
             string pidStr = pid > 0 ? pid.ToString() : "-";
             string up = "-";
             if (pid > 0)
